@@ -462,12 +462,11 @@ theorem ainv_reachable [DecidableEq D] (s : ASys K V D P) (h : AReachable P H ca
 /-! ## The three properties, concurrently -/
 
 /-- **Property 1** for the concurrent system. -/
-theorem async_rootBinding [DecidableEq D] (s₁ s₂ : ASys K V D P) (h₁ : AReachable P H cap s₁)
-    (h₂ : AReachable P H cap s₂) (i j : Nat)
+theorem async_rootBinding [DecidableEq D] (s₁ s₂ : ASys K V D P) (_h₁ : AReachable P H cap s₁)
+    (_h₂ : AReachable P H cap s₂) (i j : Nat)
     (h : (s₁.nodes i).root P H cap = (s₂.nodes j).root P H cap) :
     (s₁.nodes i).state = (s₂.nodes j).state ∨ H.Broken :=
-  rootOf_binding H cap P.fresh _ _ _ _ ((ainv_reachable P H cap hP s₁ h₁).node i).2.2.2
-    ((ainv_reachable P H cap hP s₂ h₂).node j).2.2.2 h
+  rootOf_binding H cap _ _ _ _ h
 
 /-- The node a `propose` step creates has the reference state. -/
 theorem async_propose_child [DecidableEq D] (s s' : ASys K V D P) (p : Nat) (b : List (BatchOp K V))
@@ -524,9 +523,6 @@ theorem async_prefetchIndependentTraces [DecidableEq D] (n₁ n₂ : Node K V D 
   exact Option.some.inj r₂
 
 /-! ## Readers -/
-
-/-- `Node::get`: the snapshot first (a tombstone hides storage), then storage. -/
-def kvOf (st : EState K V P.Cons) (k : K) : Option V := (st.ws k).elim (st.store k) Entry.toStore
 
 /-- One reference step never changes an existing node. -/
 theorem csys_step_old [DecidableEq D] (cs cs' : CSys K V P.Cons D) (l : Label K V)

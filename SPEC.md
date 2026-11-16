@@ -1,7 +1,7 @@
 # RightCash correctness: specification and proof status
 
 This document states what it means for the RightCash storage engine
-(the `rust/` submodule, commit `1f5e080`) to be correct, which model of the code the
+(the `rust/` submodule, commit `ce7dba2`) to be correct, which model of the code the
 statements are about, and what the Lean development in this repository proves.
 Every statement below has a Lean counterpart; the names are given in
 `monospace` and live in the `RightCash` namespace.
@@ -40,7 +40,8 @@ described in §10.
 | `policy::lru_write::LruWrite` | `Lru.St`, `Lru.writes`, `Lru.hintWrites`, `Lru.fill`, … (`Policies/Lru`) | Same, including the candidate cursor loop. |
 | `speculate::{Chain, SpecOp, run, build_step, put_back}` | `Chain`, `SpecOp`, `pinsert`, `Chain.submit/build/fail/finish` (`Worker`) | Pending `BTreeMap` with replace-on-insert semantics. |
 | `lib.rs`: `propose`, `commit`, `prefetch`, `retarget`, `after_commit`, `finish_speculation`, `spec_ops` | `proposeOut`, `Sys.propose`, `Sys.commit`, `Sys.prefetch`, `Sys.retarget`, `specOps` (`Engine`) | The writer as a labelled transition system `Step`. |
-| `root::Terms::combine`, `metadata_hash` | `rootOf`, `Hashes` (`Root`) | Height-0 sentinel `EMPTY_ROOT` included. |
+| `root::Terms::combine`, `metadata_hash` | `rootOf`, `Hashes` (`Root`) | One formula at every height, the initial node's included (R42). |
+| `proposal::Node::bare_root`, `Registry::lookup`, `RightCash::revision` | `Node.AnswersTo`, `LookupBinding` (`Engine`, `Spec`) | Which roots resolve to a node (R43); the scan order is abstracted. |
 | `proposal::Node`, registry head | `Node`, `Sys.nodes`, `Sys.head` | Nodes addressed by id; the parent check of `commit` is by id. |
 
 The transition system `Step` has two kinds of labels:
@@ -68,7 +69,10 @@ Rust engine.
   change its contents. Metadata does not affect the stored state; the built-in
   adapters ignore it. The storage root is a function of the state
   (`ROOT_IS_STATE_FUNCTION`; `RightCash::new` refuses speculation otherwise), so
-  it is modelled as `H.storage : Store K V → D`. A storage call may fail; for
+  it is modelled as `H.storage : Store K V → D`, each engine with its own
+  convention for the empty state. The initial storage state is arbitrary:
+  `RightCash::new` accepts an engine that already holds a chain's earlier
+  state (R42). A storage call may fail; for
   worker steps this is modelled as nondeterministic failure. The writer's plain
   proposal on its parent's view does not fail on a correct engine (contract
   item 4 in `storage/mod.rs`).
@@ -98,9 +102,20 @@ Rust engine.
   encoding are injective, so a collision of the abstract `H.root`/`H.policy` is
   a SHA-256/BLAKE3 collision. This is argued in `Root.lean`, not proved at the
   byte level.
+* **A7. Every block writes, and eviction never empties the set.** Used only
+  by `LookupUnique` (§5). The consensus layer proposes no empty batch: each
+  batch has at least one put or delete (`Label.Writes`; the engine does not
+  check this). The policy keeps at least one key after such a batch
+  (`Policy.KeepsKey`), which FIFO and LRU-write do exactly when the low
+  watermark is at least 1 (`Fifo.keepsKey`, `Lru.keepsKey`).
+  `validate_watermarks` accepts 0. With a low watermark of 0, an evicting
+  block empties the set even though every batch writes, and the problem
+  A7 exists to rule out comes back (§9).
 
 Not modelled, because they have no effect on consensus state: handles and
-reference counting, the registry ring and live index, statistics and timings,
+reference counting, the registry ring and live index (lookup by root is
+covered by a property over *every* node that answers to a root, §5),
+statistics and timings,
 `close`, `prune`, and checkpoint writing. Commit failures are omitted too.
 They leave the head unchanged or poison the writer, which only removes
 behaviours.
@@ -140,13 +155,20 @@ Probabilistic statements are formalised in the standard reduction style.
 * a collision of the set commitment (`Collision H.vc`),
 * a collision of the policy-state digest (`Collision H.policy`),
 * a collision of the storage root (`Collision H.storage`), or
-* a preimage of the constant `EMPTY_ROOT` under the root hash.
+* a *claw*: a combined root equal to a storage root
+  (`H.root x = H.storage st`). `Revision(root)` compares one lookup key with
+  both kinds of root (R43), and the `Hash` type does not separate them.
 
 Every binding theorem has the shape *equal roots ⇒ equal states* **∨**
-`H.Broken`. The proofs only take apart the two preimages they are given, so
+`H.Broken`. The proofs only take apart the preimages they are given, so
 anyone holding two states that falsify the left-hand side already holds a
-collision or a preimage. With collision- and preimage-resistant hashes this
-event has negligible probability.
+collision or a claw. With collision-resistant hashes, and a combined-root
+hash (domain-separated SHA-256) independent of the engine's root hash, this
+event has negligible probability. A claw with Firewood's MerkleDB empty-trie
+root, the zero hash, is a SHA-256 preimage of zero.
+
+Since R42 there is no height-0 case, so no event involving a constant root is
+needed.
 
 ---
 
@@ -175,7 +197,13 @@ forgetting all local state.
 Throughout, `P` is the eviction policy with its consensus parameters, `H` the
 hash functions, and `cap` the capacity; together they make up "the same
 engine". `Reachable P H cap sys` means that `sys` arises from a valid initial
-node (`InitOK`), with speculation on or off, by any finite execution.
+node, with speculation on or off, by any finite execution. A valid initial
+node (`InitOK`) has a policy that tracks exactly its set's keys. `new` and
+`recover` check this with `validate_policy_keys`
+(`fifo_initOK_of_tracksExactly`, `lru_initOK_of_tracksExactly`). Its height
+and storage state are arbitrary (R42: an empty or used engine under `new`, any
+checkpoint under `recover`). `initNode` with `fifo_initOK_optIn` and
+`lru_initOK_optIn` shows this for an empty set over any storage state.
 
 ### Property 1: root binding (`RootBinding`)
 
@@ -186,7 +214,42 @@ node (`InitOK`), with speculation on or off, by any finite execution.
 
 Proved: `rootBinding`, instantiated as `fifo_rootBinding` and
 `lru_rootBinding`. The state-level core is `rootOf_binding`. The two engines
-may have entirely different histories, hints and local settings.
+may have entirely different histories, hints and local settings. Since R42
+the proof needs neither reachability nor the policy laws: every root,
+the initial node's included, hashes the node's whole consensus state.
+
+### Lookup by root (`LookupBinding`, R43)
+
+`Revision(root)` resolves a node that *answers to* `root` (`Node.AnswersTo`):
+its combined root, or, while its write set is empty, its storage view's root.
+
+> For any two nodes `n₁`, `n₂` (of any engines) that answer to the same root:
+> every key reads the same through both (`kvOf`), and if the root is the
+> combined root of either node, `n₁.state = n₂.state`; or `H.Broken`.
+
+Proved: `lookupBinding`, `fifo_lookupBinding`, `lru_lookupBinding`. The
+statement covers every answering node, so it holds whichever one the
+registry's scan order picks. A handle found by a combined root is therefore
+interchangeable with any other; one found by a storage root is only
+read-equivalent. `emptyBlock_bareRoot` shows that this gap is real: an empty
+block on an empty-set node answers to the same storage root but has a
+different consensus state and (unless `H.Broken`) a different combined root,
+so blocks built on the two differ (§9).
+
+Under A7 the gap closes within an engine (`LookupUnique`):
+
+> In any engine reached from a valid initial node by a trace whose batches
+> all write, two nodes that answer to the same root have the same consensus
+> state, or `H.Broken`.
+
+Proved: `lookupUnique`; `fifo_lookupUnique` and `lru_lookupUnique` for a low
+watermark of at least 1; `async_lookupUnique` (with `fifo_`/`lru_`
+instances) for the concurrent system. The key fact is
+`nonempty_of_writes`: under A7 only the initial node can have an empty write
+set, so it is the only node that answers by its storage root. It is proved
+as an invariant of the reference semantics (`CInv`), which carries over to
+both models through `refines` and `async_refines`. `Revision(r)` therefore
+gives the same parent for later blocks whenever it is called.
 
 ### Property 2: deterministic transitions (`DeterministicPropose`)
 
@@ -259,8 +322,8 @@ and 3 are corollaries of this together with property 1. Proved: `refines`,
    view `finish` returns has exactly the reference storage state. This is the
    heart of property 3.
 4. **Global invariant** (`Inv`). Every node satisfies `NodeOK`: the policy
-   tracks exactly the write set's keys, without duplicates; the marks are
-   tracked keys; height 0 means the empty initial state. The target, if any,
+   tracks exactly the write set's keys, without duplicates, and the marks are
+   tracked keys. The target, if any,
    satisfies `ChainOK`. `inv_step` shows that every transition preserves `Inv`.
 5. **Simulation** (`proj_step`). Each engine step maps to one reference step
    on the projection. Induction gives `refines`, and the properties follow.
@@ -368,7 +431,8 @@ concurrent model `ASys`/`AStep` makes the worker a thread:
 * `async_refines`: every concurrent execution's consensus projection is the
   reference run of its consensus actions.
 * **Properties 1–3, concurrently:**
-  * `async_rootBinding`;
+  * `async_rootBinding` (and `lookupBinding`, which is about nodes and so
+    applies to both models);
   * `async_deterministicPropose`;
   * `async_prefetchIndependent`;
   * `async_prefetchIndependentTraces`: two instances that perform the same
@@ -410,55 +474,41 @@ that atomicity sound in the Rust code, and they are not proved in Lean:
 
 ## 9. Findings
 
-* **The genesis root does not bind the policy state, and `RightCash::new`
-  does not check it.** `from_snapshot` recomputes the initial root from the
-  supplied snapshot with `terms.combine(capacity, height, commitment,
-  policy_digest, storage_root, metadata_hash)`. But at height 0
-  `Terms::combine` returns the constant `EMPTY_ROOT` without reading any other
-  argument (`rust/src/root.rs:68`, documented as "callers must ensure that
-  height zero represents the empty initial state"). Recomputing a function
-  that ignores its inputs cannot catch a wrong input. So at height 0, property
-  1 holds only if every root term is checked separately; in the model that is
-  `InitOK`/`GenesisOK`. The code checks every input except one:
+* **Resolved in `d34dd27`: the initial root binds the policy state.** At
+  `1f5e080`, `Terms::combine` returned the constant `EMPTY_ROOT` at height 0
+  without reading its inputs, and `RightCash::new` did not check the policy.
+  Two engines could share the initial root with different eviction orders,
+  and then diverge on the same batch. R42 removed the height-0 case. The
+  model no longer has a genesis precondition (`GenesisOK` is gone), and
+  `rootBinding` holds for any two nodes. Rerunning the reproduction at
+  `d34dd27`, the two engines now have different initial roots.
+* **Resolved in `ce7dba2`: `new` checks that the policy tracks exactly the
+  set's keys.** At `d34dd27` only `recover` checked it, and a policy that
+  already tracked a key passed `new` and later crashed a block in `merge`
+  (`set.rs:716`). `from_snapshot`, which both `new` and `recover` run, now
+  calls `validate_policy_keys` (`tracks_exactly`: the policy's `index`
+  equals the set's keys). Given A4 (`index` is the order's keys in key
+  order), this is exactly `InitOK` (`fifo_initOK_of_tracksExactly`), so the
+  model's one precondition on the initial node is now checked at runtime.
+  The reproduction is refused at `ce7dba2` with `InvalidConfig`.
+* **R43: a storage root does not name a unique node unless A7 holds.** Every
+  node with an empty write set answers to its storage view's root. At
+  `d34dd27`, with a `MemoryStorage` that already held a key:
 
-  | Height-0 input | `new` | `recover` |
-  |---|---|---|
-  | storage root | `EngineNotFresh` (`lib.rs:420`) | `persist.rs:147` |
-  | metadata hash | constant `metadata_hash(None)` | `persist.rs:147` |
-  | entries | empty by construction (`from_entries` gives a non-empty set height 1) | `set.rs:375` |
-  | commitment | `vc.empty()` in `Snapshot::genesis` | recomputed from the (empty) entries |
-  | policy state | **unchecked**: `Snapshot::genesis` keeps the policy as passed | `restore_state(.., keys = [], 0)` must describe no keys |
+  1. before the first block, `revision(engine_root)` was the initial node;
+  2. an empty first block was proposed on it and committed;
+  3. `revision(engine_root)` then returned that block, not the initial node;
+  4. the same batch proposed on the two handles gave different roots.
 
-  `Snapshot::empty`/`from_entries` only document the precondition ("Supply a
-  fresh policy with no tracked keys"). `EvictionPolicy::writes` and
-  `restore_state` are public, so a caller can pass a policy that already
-  tracks keys, for example a reused policy object. Reproduced at `1f5e080`
-  with FIFO, capacity 4, low watermark 2:
-
-  ```rust
-  let fresh = Fifo::<K>::new(2);
-  let mut stale = Fifo::<K>::new(2);
-  stale.writes(&[b"x".to_vec()], 0, 4);
-  // a, b: RightCash::new(config, MemoryStorage, Snapshot::empty(Rehash::new(), policy, 4)?)
-  let (mut a, mut b) = (engine(fresh), engine(stale));
-  // a.reader().root() == b.reader().root() == EMPTY_ROOT
-  a.update(vec![put("a")], None)? != b.update(vec![put("a")], None)?   // roots differ at height 1
-  b.update(vec![put("b"), put("c"), put("d")], None)                    // panics at set.rs:716
-  ```
-
-  The engines have equal roots at height 0 and apply the same batch, yet reach
-  different states, so property 2 fails from genesis. At height 2, FIFO
-  evicts the phantom key `x`, and `merge` hits `unreachable!` ("the eviction
-  policy named a key the set lacks"). If `x` is written at height 1 instead,
-  the first block panics in `policy/mod.rs:177`. From height 1 on,
-  `policy_digest` is in the root, so the divergence surfaces as a root
-  mismatch or a crash, never silently. Suggested fix: check the policy at
-  genesis, as `recover` effectively does. One way is a trait method such as
-  `fn tracks_no_keys(&self) -> bool` (for the v0 policies,
-  `self.index.is_empty()`; their consensus state is `order`/`index`), checked
-  in `Snapshot::genesis` or in `from_snapshot` when `height == 0`. The other
-  is to drop the height-0 short-circuit in `combine`, if nothing requires a
-  genesis root of exactly `EMPTY_ROOT`.
+  Under A7 this cannot happen (`lookupUnique`): only the initial node ever
+  has an empty write set. Both halves of A7 are needed. With a low
+  watermark of 0, nonempty batches reproduce it at `ce7dba2`: over an engine
+  holding `a = v`, with capacity 1, block 1 rewrites `a = v` and block 2
+  deletes the absent key `b`. Block 2 evicts both keys, which writes `a = v`
+  and deletes `b`, so the set is empty and the storage state is the
+  original one. `revision(engine_root)` then returns block 2. Neither half is
+  checked by the engine. To check them instead of assuming them, `propose`
+  could reject an empty batch and `validate_watermarks` a low watermark of 0.
 * No counterexample to properties 1–3 exists in the model. In particular, the
   speculative path (prediction marks, kept chains spanning several blocks,
   margin-induced retractions, LRU withdrawals and cursor refills, worker
@@ -472,7 +522,7 @@ that atomicity sound in the Rust code, and they are not proved in Lean:
 ### 10.1 Which commit is proved
 
 The RightCash repository is the submodule `rust/`, pinned at the commit the
-model was transcribed from (`1f5e080`). `git submodule status` shows the pin.
+model is about (`ce7dba2`). `git submodule status` shows the pin.
 Moving to a new Rust commit is a reviewable change:
 
 ```sh
@@ -540,6 +590,7 @@ RightCash/Worker.lean             speculation worker: chains, finish, eff lemmas
 RightCash/Engine.lean             the writer as a labelled transition system
 RightCash/Spec.lean               reference semantics and the property statements
 RightCash/Proofs/*.lean           invariants, finish_store, properties 1–3
+RightCash/Proofs/Lookup.lean      lookup by root under A7 (lookupUnique)
 RightCash/Policies/*.lean         FIFO and LRU-write, and their laws
 RightCash/Impl/Sorted.lean        key order, sorted record lists, sorted_ext
 RightCash/Impl/Merge.lean         set::merge and merge_spec

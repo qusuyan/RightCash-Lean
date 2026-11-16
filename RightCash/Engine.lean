@@ -99,6 +99,12 @@ variable (P : Policy K) (H : Hashes K V P.Cons D) (cap : Nat)
 /-- A node's combined root (`Handle::root`). -/
 def Node.root (n : Node K V D P) : D := rootOf H cap n.state n.metaHash
 
+/-- The roots `Registry::lookup` resolves to node `n` (R43): its combined
+root, and, while its write set is empty (no entries, no tombstones), its
+storage view's root (`Node::bare_root`). -/
+def Node.AnswersTo (n : Node K V D P) (r : D) : Prop :=
+  n.root P H cap = r ∨ ((∀ k, n.ws k = none) ∧ H.storage n.store = r)
+
 /-- The plain path's storage state for a child of `par` (design §9.1): the
 parent's view if nothing is evicted, else the parent's view with every
 victim's final entry written. -/
@@ -242,21 +248,21 @@ inductive Steps [DecidableEq D] : Sys K V D P → List (Label K V) → Sys K V D
       Step P H cap s l s' → Steps s' τ s'' → Steps s (l :: τ) s''
 
 /-- `RightCash::new`/`recover` on initial node `n0`: marks are reset; with
-speculation on, the genesis node is the target and the worker starts on
-its view. Unused slots of `nodes` hold the genesis node too. -/
+speculation on, the initial node is the target and the worker starts on
+its view. Unused slots of `nodes` hold the initial node too. The initial
+node's height, write set and storage are arbitrary (R42: `new` accepts an
+engine that already holds state, and `recover` any checkpoint). -/
 def Sys.init (n0 : Node K V D P) (worker : Bool) : Sys K V D P :=
   let g : Node K V D P := { n0 with pol := P.resetHints n0.pol, parent := none }
   { nodes := fun _ => g, size := 1, head := 0, worker,
     spec := if worker then some (0, Chain.new g.store) else none }
 
-/-- Preconditions on the initial node, all checked or documented by `new` and
-`recover`: the policy tracks exactly the set's keys (`restore_state`
-validates it), without duplicates; a height-0 node is the empty initial
-state (fresh storage is checked; a fresh policy is a documented precondition
-of `Snapshot::empty`). -/
+/-- Preconditions on the initial node: the policy tracks exactly the set's
+keys, without duplicates. `new` and `recover` check it
+(`Snapshot::validate_policy_keys`; see `fifo_initOK_of_tracksExactly`).
+Nothing constrains the storage state or the height. -/
 def InitOK (n0 : Node K V D P) : Prop :=
-  P.wf (P.cons n0.pol) ∧ (∀ k, (n0.ws k).isSome ↔ k ∈ P.tracked (P.cons n0.pol)) ∧
-    GenesisOK P.fresh n0.state
+  P.wf (P.cons n0.pol) ∧ (∀ k, (n0.ws k).isSome ↔ k ∈ P.tracked (P.cons n0.pol))
 
 /-- States reachable from some valid initial node, with or without
 speculation, by any finite execution. -/

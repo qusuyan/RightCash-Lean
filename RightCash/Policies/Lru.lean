@@ -372,5 +372,42 @@ theorem lawful (le : K → K → Bool) (low : Nat) : (policy le low).Lawful wher
   kept_delta s ks h cap hv := kept_spec le low s ks h cap hv
   final s ks h cap hv := final_spec le low s ks h cap hv
 
+/-- With a low watermark of at least 1, a block with a write never empties
+the set (part of A7). The order after the writes holds every old or written
+key once, so it has `order.length + newCount` entries. -/
+theorem keepsKey (le : K → K → Bool) (low : Nat) (hlow : 1 ≤ low) : (policy le low).KeepsKey := by
+  intro (c : List (Nat × K)) ks h cap hwf hks
+  show keysOf (specWrites le low c ks h cap).2 ≠ []
+  have hA : (keysOf c).Nodup := hwf
+  have hW := nodup_sortDedup le ks
+  simp only [specWrites, evictPrefix, keysOf_drop]
+  refine Policies.drop_evictionCount_ne_nil _ _ _ _ hlow (Nat.le_of_eq ?_) ?_
+  · -- both sides count the keys that are old or written, once each
+    have hL : keysOf (c.filter (fun e => e.2 ∉ sortDedup le ks) ++
+        (sortDedup le ks).map (fun k => (h, k))) =
+        (keysOf c).filter (fun k => k ∉ sortDedup le ks) ++ sortDedup le ks := by
+      unfold keysOf
+      rw [List.map_append, List.filter_map, List.map_map]
+      simp [Function.comp_def]
+    rw [hL]
+    have hp : ((keysOf c).filter (fun k => k ∉ sortDedup le ks) ++ sortDedup le ks).Perm
+        (keysOf c ++ (sortDedup le ks).filter (fun k => k ∉ keysOf c)) := by
+      rw [List.perm_ext_iff_of_nodup]
+      · intro k
+        simp only [List.mem_append, List.mem_filter, decide_eq_true_eq]
+        by_cases h1 : k ∈ keysOf c <;> by_cases h2 : k ∈ sortDedup le ks <;> simp [h1, h2]
+      · refine List.nodup_append.2 ⟨hA.sublist List.filter_sublist, hW, ?_⟩
+        intro a ha b hb e; subst e; simp at ha; exact ha.2 (by simpa using hb)
+      · refine List.nodup_append.2 ⟨hA, hW.sublist List.filter_sublist, ?_⟩
+        intro a ha b hb e; subst e; simp at hb; exact hb.2 ha
+    rw [hp.length_eq]
+    simp [keysOf]
+  · have := Policies.written_pos le c ks hks
+    have hle : 1 ≤ (sortDedup le ks).length := by
+      obtain ⟨k, hk⟩ := List.exists_mem_of_ne_nil ks hks
+      exact List.length_pos_of_mem ((mem_sortDedup le).2 hk)
+    simp only [keysOf, List.map_append, List.length_append, List.length_map]
+    omega
+
 end Lru
 end RightCash

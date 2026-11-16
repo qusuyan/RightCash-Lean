@@ -265,5 +265,16 @@ theorem lawful (le : K → K → Bool) (low : Nat) : (policy le low).Lawful wher
   kept_delta s ks h cap hv := kept_spec le low s ks h cap hv
   final s ks h cap hv := final_spec le low s ks h cap hv
 
+/-- With a low watermark of at least 1, a block with a write never empties
+the set (part of A7). -/
+theorem keepsKey (le : K → K → Bool) (low : Nat) (hlow : 1 ≤ low) : (policy le low).KeepsKey := by
+  intro (c : List (Nat × K)) ks h cap _ hks
+  show keysOf (specWrites le low c ks h cap).2 ≠ []
+  simp only [specWrites, evictPrefix, keysOf_drop]
+  refine Policies.drop_evictionCount_ne_nil _ _ _ _ hlow (Nat.le_of_eq ?_) ?_
+  · simp [keysOf]
+  · have := Policies.written_pos le c ks hks
+    simpa [keysOf] using this
+
 end Fifo
 end RightCash

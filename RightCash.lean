@@ -19,4 +19,5 @@ import RightCash.Impl.MerkleBlake3
 import RightCash.Impl.Snapshot
 import RightCash.Concurrent.Model
 import RightCash.Concurrent.Proofs
+import RightCash.Proofs.Lookup
 import RightCash.Main

@@ -11,6 +11,15 @@ import RightCash
 #print axioms RightCash.lru_prefetchIndependent
 #print axioms RightCash.lru_prefetchIndependentTraces
 #print axioms RightCash.lru_refines
+#print axioms RightCash.fifo_lookupBinding
+#print axioms RightCash.lru_lookupBinding
+#print axioms RightCash.emptyBlock_bareRoot
+#print axioms RightCash.fifo_lookupUnique
+#print axioms RightCash.lru_lookupUnique
+#print axioms RightCash.fifo_async_lookupUnique
+#print axioms RightCash.lru_async_lookupUnique
+#print axioms RightCash.fifo_initOK_of_tracksExactly
+#print axioms RightCash.fifo_initOK_optIn
 #print axioms RightCash.fifo_async_refines
 #print axioms RightCash.lru_async_refines
 #print axioms RightCash.fifo_async_prefetchIndependentTraces

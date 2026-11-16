@@ -1,7 +1,6 @@
 # rust_file	rust_symbol (literal text at the pinned commit)	lean_name	relation
 src/types.rs	pub enum BatchOp	RightCash.BatchOp	transcribed (PrefixDelete rejected up front)
-src/types.rs	pub const EMPTY_ROOT	RightCash.Hashes.emptyRoot	abstracted (uninterpreted constant)
-src/root.rs	pub fn combine(	RightCash.rootOf	transcribed over abstract hashes
+src/root.rs	pub fn combine(	RightCash.rootOf	transcribed over abstract hashes (every height, R42)
 src/root.rs	pub fn metadata_hash(	RightCash.Hashes.metadata	abstracted (uninterpreted hash)
 src/set.rs	pub enum Entry<V>	RightCash.Entry	transcribed
 src/set.rs	enum Slot {	RightCash.Slot	transcribed (u32 fields as Nat)
@@ -15,6 +14,13 @@ src/set.rs	pub(crate) fn genesis(	RightCash.Snap.genesis	transcribed
 src/set.rs	pub fn get(&self, key: &K) -> Option<Entry<V>>	RightCash.kvOf	transcribed (with Node::get)
 src/proposal.rs	pub(crate) struct Node<	RightCash.Node	abstracted (snapshot as map + policy + view state)
 src/proposal.rs	pub(crate) fn get(&self, key: &K) -> Result<Option<V>>	RightCash.kvOf	transcribed
+src/proposal.rs	pub(crate) fn bare_root(	RightCash.Node.AnswersTo	transcribed (second disjunct, R43)
+src/proposal.rs	pub fn lookup(&self, root: Hash)	RightCash.Node.AnswersTo	over-approximated (any answering node; scan order abstracted)
+src/lib.rs	pub fn revision(&self, root: Hash)	RightCash.LookupBinding	property stated over every answering node
+src/lib.rs	pub fn revision(&self, root: Hash)	RightCash.LookupUnique	unique up to consensus state under A7
+src/set.rs	pub(crate) fn validate_policy_keys(	RightCash.InitOK	checked by new and recover
+src/policy/mod.rs	fn index_tracks<	RightCash.fifo_initOK_of_tracksExactly	equivalent under A4 (index = order's keys in key order)
+src/policy/fifo.rs	fn eviction_count(	RightCash.Policies.evictionCount	transcribed (also LruWrite)
 src/policy/mod.rs	pub trait EvictionPolicy<	RightCash.Policy	interface + laws (Policy.Lawful)
 src/policy/mod.rs	pub struct Eviction<	RightCash.Eviction	transcribed
 src/policy/mod.rs	pub struct Prediction<	RightCash.Prediction	transcribed
@@ -36,6 +42,7 @@ src/speculate.rs	fn build(	RightCash.Chain.build	transcribed (+ Chain.fail)
 src/speculate.rs	fn finish(mut self	RightCash.Chain.finish	transcribed
 src/speculate.rs	enum Request<	RightCash.Req	transcribed
 src/speculate.rs	fn run<	RightCash.ASys.dequeue	over-approximated (any schedule)
+src/lib.rs	pub fn new(config: Config, storage: S	RightCash.Sys.init	transcribed (any storage state, R42; InitOK)
 src/lib.rs	pub fn propose(	RightCash.Sys.propose	transcribed (sync); ASys.proposeNow/Begin/End (async)
 src/lib.rs	fn finish_speculation(	RightCash.finishChild	transcribed
 src/lib.rs	pub fn commit(	RightCash.Sys.commit	transcribed (failures omitted)

@@ -11,12 +11,20 @@ LRU-write), and for every capacity, low watermark and choice of hash
 functions:
 
 1. **Root binding.** Equal roots imply equal write sets, eviction-policy
-   states and storage states, unless a hash collision has been found.
+   states and storage states, unless a hash collision has been found. This
+   covers the initial node too, including one opened over an engine that
+   already holds state.
 2. **Deterministic transitions.** Equal roots plus the same batch imply equal
    next states and equal next roots.
 3. **Independence from prefetch.** The state after `Propose` depends only on
    the parent's state and the batch, never on prefetch hints, speculation
    worker timing or worker failures.
+
+`Revision(root)`, which also resolves an empty-set node by its storage root,
+returns nodes that read identically. When `root` is a combined root, they
+also have the same consensus state. If every batch writes at least one key and
+the low watermark is at least 1, they have the same consensus state in every
+case (assumption A7).
 
 These also hold for the **concurrent** system: a separate worker thread
 behind a FIFO channel, any number of concurrent hint sources, and readers.

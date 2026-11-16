@@ -127,4 +127,12 @@ structure Policy.Lawful {K : Type} (P : Policy K) : Prop where
   final : ∀ s ks h cap, (P.writes s ks h cap).1.victims ≠ [] →
     FinalOK (P.marked s) ks (P.writes s ks h cap).1
 
+/-- A batch with at least one write leaves at least one key tracked: the
+policy never evicts the whole set a block writes to. FIFO and LRU-write have
+this when their low watermark is at least 1 (`Fifo.keepsKey`,
+`Lru.keepsKey`); with a low watermark of 0, an evicting block empties the set.
+Part of assumption A7 (`LookupUnique`). -/
+def Policy.KeepsKey {K : Type} (P : Policy K) : Prop :=
+  ∀ c ks h cap, P.wf c → ks ≠ [] → P.tracked (P.specWrites c ks h cap).2 ≠ []
+
 end RightCash

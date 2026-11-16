@@ -142,17 +142,83 @@ theorem prefetchIndependentTraces (hP : P.Lawful) : PrefetchIndependentTraces P 
   rw [r₁] at r₂
   exact Option.some.inj r₂
 
-/-- **Property 1 (root binding).** -/
-theorem rootBinding (hP : P.Lawful) : RootBinding P H cap := by
-  intro sys₁ sys₂ hr₁ hr₂ i j h
-  have g₁ := (inv_reachable P H cap hP sys₁ hr₁).node i
-  have g₂ := (inv_reachable P H cap hP sys₂ hr₂).node j
-  exact rootOf_binding H cap P.fresh _ _ _ _ g₁.2.2.2 g₂.2.2.2 h
+/-- **Property 1 (root binding).** Since R42 it needs neither reachability
+nor the policy laws: every node's root, the initial node's included, hashes
+its whole consensus state. -/
+theorem rootBinding : RootBinding P H cap := by
+  intro sys₁ sys₂ _ _ i j h
+  exact rootOf_binding H cap _ _ _ _ h
+
+/-- **Lookup by root (R43).** Holds for any nodes whatsoever. -/
+theorem lookupBinding : LookupBinding P H cap := by
+  intro n₁ n₂ r h₁ h₂
+  classical
+  by_cases hb : H.Broken
+  · exact Or.inr hb
+  left
+  have nclaw : ∀ (x : RootPre D) (st : Store K V), H.root x ≠ H.storage st :=
+    fun x st e => hb (Or.inr (Or.inr (Or.inr (Or.inr ⟨x, st, e⟩))))
+  have nst : ¬Collision H.storage := fun c => hb (Or.inr (Or.inr (Or.inr (Or.inl c))))
+  rcases h₁ with e₁ | ⟨w₁, s₁⟩ <;> rcases h₂ with e₂ | ⟨w₂, s₂⟩
+  · have hst := (rootOf_binding H cap _ _ _ _ (e₁.trans e₂.symm)).resolve_right hb
+    exact ⟨fun k => by rw [hst], fun _ => hst⟩
+  · exact absurd (e₁.trans s₂.symm) (nclaw _ _)
+  · exact absurd (e₂.trans s₁.symm) (nclaw _ _)
+  · have hs : n₁.store = n₂.store := eq_of_not_collision nst (s₁.trans s₂.symm)
+    refine ⟨fun k => ?_, fun h => ?_⟩
+    · simp [kvOf, Node.state, w₁ k, w₂ k, hs]
+    · rcases h with e | e
+      · exact absurd (e.trans s₁.symm) (nclaw _ _)
+      · exact absurd (e.trans s₂.symm) (nclaw _ _)
+
+/-- Storage roots are shared more widely than combined roots. An empty block
+on a node whose write set is empty (the initial node of an opt-in, say)
+yields a node with the same storage view, again with an empty write set, one
+height up. Both answer to the same storage root (R43) and read identically
+(`lookupBinding`), but their consensus states differ, and so, unless a hash is
+broken, do their combined roots and those of any block proposed on them.
+Assumption A7 rules this out (`lookupUnique`). -/
+theorem emptyBlock_bareRoot (hP : P.Lawful) (sys sys' : Sys K V D P) (p : Nat)
+    (md : Option (List UInt8)) (hr : Reachable P H cap sys) (hempty : ∀ k, (sys.nodes p).ws k = none)
+    (h : Step P H cap sys (.propose p [] md) sys') :
+    (sys'.nodes sys.size).AnswersTo P H cap (H.storage (sys.nodes p).store) ∧
+    (sys.nodes p).AnswersTo P H cap (H.storage (sys.nodes p).store) ∧
+    (sys'.nodes sys.size).state ≠ (sys.nodes p).state ∧
+    ((sys'.nodes sys.size).root P H cap ≠ (sys.nodes p).root P H cap ∨ H.Broken) := by
+  have hc := (prefetchIndependent P H cap hP sys sys' p [] md hr h).1
+  have hn := (inv_reachable P H cap hP sys hr).node p
+  have hv : ∀ k, k ∉ (P.specWrites (P.cons (sys.nodes p).pol) [] ((sys.nodes p).height + 1) cap).1 := by
+    intro k hk
+    rcases hP.victims_sub _ _ _ _ k hk with ht | hb
+    · have := (hn.2.1 k).2 ht
+      rw [hempty k] at this
+      exact absurd this (by simp)
+    · simp at hb
+  have hws : ∀ k, (sys'.nodes sys.size).ws k = none := by
+    intro k
+    have := congrArg (fun st => st.ws k) hc
+    simp only [Node.state, specPropose, childWS, List.map_nil] at this
+    rw [this, ite_eq_right (hv k)]
+    simp [finalEntries, batchFinal, hempty k, emptyMap]
+  have hstore : (sys'.nodes sys.size).store = (sys.nodes p).store := by
+    funext k
+    have := congrArg (fun st => st.store k) hc
+    simp only [Node.state, specPropose, List.map_nil] at this
+    rw [this, ite_eq_right (hv k)]
+  have hne : (sys'.nodes sys.size).state ≠ (sys.nodes p).state := by
+    intro e
+    have := congrArg EState.height (hc.symm.trans e)
+    simp [specPropose, Node.state] at this
+  refine ⟨Or.inr ⟨hws, by rw [hstore]⟩, Or.inr ⟨hempty, rfl⟩, hne, ?_⟩
+  classical
+  by_cases hb : H.Broken
+  · exact Or.inr hb
+  · exact Or.inl fun e => hne ((rootOf_binding H cap _ _ _ _ e).resolve_right hb)
 
 /-- **Property 2 (deterministic transitions).** -/
 theorem deterministicPropose (hP : P.Lawful) : DeterministicPropose P H cap := by
   intro sys₁ sys₂ sys₁' sys₂' p₁ p₂ b md hr₁ hr₂ hroot hs₁ hs₂
-  rcases rootBinding P H cap hP sys₁ sys₂ hr₁ hr₂ p₁ p₂ hroot with heq | hbroken
+  rcases rootBinding P H cap sys₁ sys₂ hr₁ hr₂ p₁ p₂ hroot with heq | hbroken
   · obtain ⟨c₁, m₁⟩ := prefetchIndependent P H cap hP sys₁ sys₁' p₁ b md hr₁ hs₁
     obtain ⟨c₂, m₂⟩ := prefetchIndependent P H cap hP sys₂ sys₂' p₂ b md hr₂ hs₂
     have hst : (sys₁'.nodes sys₁.size).state = (sys₂'.nodes sys₂.size).state := by

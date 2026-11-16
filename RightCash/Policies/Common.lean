@@ -88,6 +88,27 @@ theorem victims_mem_order (le : K → K → Bool) (order : List (Nat × K)) (cnt
     (hk : k ∈ (evictPrefix le order cnt).1) : k ∈ keysOf order :=
   List.mem_of_mem_take ((mem_evictPrefix_victims le order cnt).1 hk)
 
+/-- Draining `evictionCount low len cap` entries leaves one, if the low
+watermark is at least 1 and the order holds at least `len ≥ 1` entries. -/
+theorem drop_evictionCount_ne_nil {α : Type} (L : List α) (low len cap : Nat) (hlow : 1 ≤ low)
+    (hge : len ≤ L.length) (hpos : 1 ≤ L.length) : L.drop (evictionCount low len cap) ≠ [] := by
+  rw [Ne, List.drop_eq_nil_iff]
+  unfold evictionCount
+  split <;> omega
+
+/-- A nonempty batch has a written key that is old or new. -/
+theorem written_pos (le : K → K → Bool) (order : List (Nat × K)) (ks : List K) (hks : ks ≠ []) :
+    1 ≤ order.length + ((sortDedup le ks).filter (fun k => k ∉ keysOf order)).length := by
+  obtain ⟨k, hk⟩ := List.exists_mem_of_ne_nil ks hks
+  by_cases hkc : k ∈ keysOf order
+  · have : 0 < order.length := by
+      cases order with
+      | nil => simp [keysOf] at hkc
+      | cons _ _ => simp
+    exact Nat.le_trans this (Nat.le_add_right _ _)
+  · have hm : k ∈ (sortDedup le ks).filter (fun k => k ∉ keysOf order) := by simp [hk, hkc]
+    exact Nat.le_trans (List.length_pos_of_mem hm) (Nat.le_add_left _ _)
+
 /-! ## Inserting new marks -/
 
 /-- `for key in candidates { if marked.insert(key) { evict.push(key) } }`:

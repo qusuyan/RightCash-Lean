@@ -19,12 +19,11 @@ section Inv
 variable (P : Policy K) (H : Hashes K V P.Cons D) (cap : Nat)
 
 /-- Per-node invariant: the policy tracks exactly the write set's keys
-(without duplicates), marks are tracked keys, and height 0 is genesis. -/
+(without duplicates), and marks are tracked keys. -/
 def NodeOK (n : Node K V D P) : Prop :=
   P.wf (P.cons n.pol) ∧
   (∀ k, (n.ws k).isSome ↔ k ∈ P.tracked (P.cons n.pol)) ∧
-  (∀ k ∈ P.marked n.pol, k ∈ P.tracked (P.cons n.pol)) ∧
-  GenesisOK P.fresh n.state
+  (∀ k ∈ P.marked n.pol, k ∈ P.tracked (P.cons n.pol))
 
 /-- The prediction invariant (design §9.1: "every marked key is represented
 either in the latest view or in the queued operations"): the chain is based

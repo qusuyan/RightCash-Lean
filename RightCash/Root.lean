@@ -3,13 +3,16 @@ import RightCash.Basic
 /-!
 # Hash functions and root composition
 
-Models `src/root.rs` (design §7.3):
+Models `src/root.rs` (design §7.3, R42):
 
 ```text
-root = EMPTY_ROOT                                       if height == 0
-     = SHA-256( DOMAIN ‖ static terms ‖ capacity ‖ height
+root = SHA-256( DOMAIN ‖ static terms ‖ capacity ‖ height
               ‖ set_commitment ‖ policy_digest ‖ storage_root ‖ metadata_hash )
 ```
+
+at every height, the initial node's included. The initial node may sit on
+an engine that already holds state (a chain opting in to right_cash); its
+root binds that state through `storage_root`.
 
 ## How "with overwhelming probability" is formalised
 
@@ -19,13 +22,14 @@ injective. Instead, every binding statement has the form
 > equal roots ⇒ equal states  **∨**  `H.Broken`,
 
 where `H.Broken` says that someone holds an explicit collision of one of the
-hash functions (or a preimage of the `EMPTY_ROOT` constant under the root
-hash). The proofs only ever take apart the two preimages they are given, so
-anyone who finds two states that falsify the left-hand side has *already
-found* the collision. With collision-resistant (and preimage-resistant)
-hashes this happens with negligible probability, which is exactly the
-"overwhelming probability" guarantee. This is the standard reduction-style
-formalisation and avoids probability theory altogether.
+hash functions, or a *claw*: a combined root equal to a storage root (R43
+compares both kinds of root against the same lookup key). The proofs only
+ever take apart the preimages they are given, so anyone who finds two states
+that falsify the left-hand side has *already found* the collision or claw.
+With collision-resistant hashes, and a combined-root hash independent of the
+engine's root hash, this happens with negligible probability, which is
+exactly the "overwhelming probability" guarantee. This is the standard
+reduction-style formalisation and avoids probability theory altogether.
 
 The modelled functions and their Rust counterparts:
 
@@ -34,7 +38,7 @@ The modelled functions and their Rust counterparts:
 | `root`      | `Terms::combine` = SHA-256 ∘ (injective fixed-width encoding of `RootPre`, static terms fixed per engine) |
 | `vc`        | `VectorCommitment::commitment` over the retained entries |
 | `policy`    | `EvictionPolicy::state_digest` (BLAKE3 over the eviction order) |
-| `storage`   | `StorageProposal::root` (`ROOT_IS_STATE_FUNCTION`: a function of the stored state) |
+| `storage`   | `StorageProposal::root` (`ROOT_IS_STATE_FUNCTION`: a function of the stored state, in the engine's own convention for the empty state) |
 | `metadata`  | `root::metadata_hash`                                     |
 
 The static terms (`DOMAIN`, scheme/policy/engine identifiers and parameter
@@ -58,7 +62,6 @@ structure RootPre (D : Type) where
 /-- The hash functions of one engine configuration. `C` is the policy's
 consensus-state type, `D` the 32-byte digest type. -/
 structure Hashes (K V C D : Type) where
-  emptyRoot : D
   root : RootPre D → D
   vc : WriteSet K V → D
   policy : C → D
@@ -68,11 +71,19 @@ structure Hashes (K V C D : Type) where
 /-- `f` has a collision. -/
 def Collision {α β : Type} (f : α → β) : Prop := ∃ x y, x ≠ y ∧ f x = f y
 
-/-- Someone holds a collision of one of the hashes, or a preimage of
-`EMPTY_ROOT` under the root hash. Negligible-probability event. -/
+/-- Someone holds a collision of one of the hashes, or a claw between the
+combined-root hash and the storage-root hash. Negligible-probability event. -/
 def Hashes.Broken {K V C D : Type} (H : Hashes K V C D) : Prop :=
   Collision H.root ∨ Collision H.vc ∨ Collision H.policy ∨ Collision H.storage ∨
-    ∃ x, H.root x = H.emptyRoot
+    ∃ x st, H.root x = H.storage st
+
+/-- If no collision is known, `f` is injective on what we meet. -/
+theorem eq_of_not_collision {α β : Type} {f : α → β} (h : ¬Collision f) {x y : α}
+    (hxy : f x = f y) : x = y := by
+  classical
+  by_cases e : x = y
+  · exact e
+  · exact absurd ⟨x, y, e, hxy⟩ h
 
 /-- The consensus state of one node, i.e. everything a root must bind:
 height, the buffered write set (tombstones included), the eviction policy's
@@ -85,66 +96,42 @@ structure EState (K V C : Type) where
   policy : C
   store : Store K V
 
-/-- The height-0 initial state: an empty set, a fresh policy, fresh storage. -/
-def EState.empty {K V C : Type} (fresh : C) : EState K V C :=
-  ⟨0, emptyMap, fresh, emptyMap⟩
-
 /-- `Terms::combine`: a node's combined root from its state and metadata hash. -/
 def rootOf {K V C D : Type} (H : Hashes K V C D) (cap : Nat) (st : EState K V C) (mh : D) : D :=
-  if st.height = 0 then H.emptyRoot
-  else H.root ⟨cap, st.height, H.vc st.ws, H.policy st.policy, H.storage st.store, mh⟩
-
-/-- The genesis convention: a height-0 state is the empty initial state
-(`RightCash::new` requires fresh storage; `Snapshot::empty` requires a fresh
-policy). -/
-def GenesisOK {K V C : Type} (fresh : C) (st : EState K V C) : Prop :=
-  st.height = 0 → st = EState.empty fresh
+  H.root ⟨cap, st.height, H.vc st.ws, H.policy st.policy, H.storage st.store, mh⟩
 
 /-- **Root binding** (state level). Two states with the same root are equal,
-unless a hash has been broken. -/
-theorem rootOf_binding {K V C D : Type} (H : Hashes K V C D) (cap : Nat) (fresh : C)
+unless a hash has been broken. No precondition: since R42 the initial node's
+root is a hash like every other node's. -/
+theorem rootOf_binding {K V C D : Type} (H : Hashes K V C D) (cap : Nat)
     (st₁ st₂ : EState K V C) (mh₁ mh₂ : D)
-    (g₁ : GenesisOK fresh st₁) (g₂ : GenesisOK fresh st₂)
     (h : rootOf H cap st₁ mh₁ = rootOf H cap st₂ mh₂) :
     st₁ = st₂ ∨ H.Broken := by
-  unfold rootOf at h
-  by_cases h₁ : st₁.height = 0 <;> by_cases h₂ : st₂.height = 0
-  · exact Or.inl ((g₁ h₁).trans (g₂ h₂).symm)
-  · simp only [h₁, h₂, ite_true, ite_false] at h
-    exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr ⟨_, h.symm⟩))))
-  · simp only [h₁, h₂, ite_true, ite_false] at h
-    exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr ⟨_, h⟩))))
-  · simp only [h₁, h₂, ite_false] at h
-    classical
-    by_cases hpre : (⟨cap, st₁.height, H.vc st₁.ws, H.policy st₁.policy, H.storage st₁.store, mh₁⟩ :
-        RootPre D) = ⟨cap, st₂.height, H.vc st₂.ws, H.policy st₂.policy, H.storage st₂.store, mh₂⟩
-    · injection hpre with _ hh hvc hpol hst _
-      by_cases e₁ : st₁.ws = st₂.ws
-      · by_cases e₂ : st₁.policy = st₂.policy
-        · by_cases e₃ : st₁.store = st₂.store
-          · left
-            cases st₁; cases st₂
-            simp_all
-          · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨_, _, e₃, hst⟩))))
-        · exact Or.inr (Or.inr (Or.inr (Or.inl ⟨_, _, e₂, hpol⟩)))
-      · exact Or.inr (Or.inr (Or.inl ⟨_, _, e₁, hvc⟩))
-    · exact Or.inr (Or.inl ⟨_, _, hpre, h⟩)
+  classical
+  by_cases hb : H.Broken
+  · exact Or.inr hb
+  left
+  have nb : ¬Collision H.root ∧ ¬Collision H.vc ∧ ¬Collision H.policy ∧ ¬Collision H.storage :=
+    ⟨fun c => hb (Or.inl c), fun c => hb (Or.inr (Or.inl c)), fun c => hb (Or.inr (Or.inr (Or.inl c))),
+      fun c => hb (Or.inr (Or.inr (Or.inr (Or.inl c))))⟩
+  have hpre := eq_of_not_collision nb.1 h
+  injection hpre with _ hh hvc hpol hst _
+  have e₁ := eq_of_not_collision nb.2.1 hvc
+  have e₂ := eq_of_not_collision nb.2.2.1 hpol
+  have e₃ := eq_of_not_collision nb.2.2.2 hst
+  cases st₁; cases st₂
+  simp_all
 
-/-- Equal non-genesis roots also bind the metadata hash. -/
+/-- Equal roots also bind the metadata hash. -/
 theorem rootOf_binding_meta {K V C D : Type} (H : Hashes K V C D) (cap : Nat)
-    (st₁ st₂ : EState K V C) (mh₁ mh₂ : D) (hne : st₁.height ≠ 0)
+    (st₁ st₂ : EState K V C) (mh₁ mh₂ : D)
     (h : rootOf H cap st₁ mh₁ = rootOf H cap st₂ mh₂) :
     mh₁ = mh₂ ∨ H.Broken := by
   classical
-  unfold rootOf at h
-  by_cases h₂ : st₂.height = 0
-  · simp only [hne, h₂, ite_true, ite_false] at h
-    exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr ⟨_, h⟩))))
-  · simp only [hne, h₂, ite_false] at h
-    by_cases hpre : (⟨cap, st₁.height, H.vc st₁.ws, H.policy st₁.policy, H.storage st₁.store, mh₁⟩ :
-        RootPre D) = ⟨cap, st₂.height, H.vc st₂.ws, H.policy st₂.policy, H.storage st₂.store, mh₂⟩
-    · injection hpre with _ _ _ _ _ hm
-      exact Or.inl hm
-    · exact Or.inr (Or.inl ⟨_, _, hpre, h⟩)
+  by_cases hc : Collision H.root
+  · exact Or.inr (Or.inl hc)
+  have hpre := eq_of_not_collision hc h
+  injection hpre with _ _ _ _ _ hm
+  exact Or.inl hm
 
 end RightCash

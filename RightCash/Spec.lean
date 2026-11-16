@@ -11,7 +11,8 @@ is proved. It has three parts:
    on its consensus state, and write the victims' final entries to storage on
    top of the parent's view (the *plain path*, design §9.1). `CSys` lifts it
    to the consensus projection of a whole engine (nodes, parents, head).
-2. **Root binding** (`RootBinding`, property 1).
+2. **Root binding** (`RootBinding`, property 1), and its counterpart for
+   `Revision(root)`, which also resolves storage roots (`LookupBinding`, R43).
 3. **Deterministic transitions** (`DeterministicPropose`, property 2) and
    **independence from prefetch hints** (`PrefetchIndependent` and
    `PrefetchIndependentTraces`, property 3), plus the refinement statement
@@ -140,6 +141,44 @@ def PrefetchIndependentTraces [DecidableEq D] : Prop :=
     Steps P H cap (Sys.init P n₁ w₁) τ₁ sys₁ → Steps P H cap (Sys.init P n₂ w₂) τ₂ sys₂ →
     consensusLabels τ₁ = consensusLabels τ₂ →
     sys₁.proj P = sys₂.proj P
+
+/-! ## Reads and lookup by root -/
+
+/-- `Node::get`: the snapshot first (a tombstone hides storage), then storage. -/
+def kvOf (st : EState K V P.Cons) (k : K) : Option V := (st.ws k).elim (st.store k) Entry.toStore
+
+/-- **Lookup by root (R43).** `Revision(root)` returns some node that answers
+to `root` (`Node.AnswersTo`): by its combined root, or by its storage view's
+root if its write set is empty. Any two nodes, of any two instances, that
+answer to the same root read every key identically; if the root is the
+combined root of either node, they also have the same consensus state. Unless
+a hash is broken. (Two nodes answering to the same *storage* root need not
+have the same consensus state: `emptyBlock_bareRoot`. Under A7 they do,
+within one engine: `LookupUnique`.) -/
+def LookupBinding : Prop :=
+  ∀ (n₁ n₂ : Node K V D P) (r : D), n₁.AnswersTo P H cap r → n₂.AnswersTo P H cap r →
+    ((∀ k, kvOf P n₁.state k = kvOf P n₂.state k) ∧
+      (n₁.root P H cap = r ∨ n₂.root P H cap = r → n₁.state = n₂.state)) ∨ H.Broken
+
+/-- Assumption A7, on the consensus layer: a proposed batch has at least one
+write (put or delete). Commits and internal actions are unconstrained. -/
+def Label.Writes : Label K V → Prop
+  | .propose _ b _ => b ≠ []
+  | _ => True
+
+/-- **Unambiguous lookup within an engine (R43, under A7).** If every
+proposed batch has at least one write, and the policy never evicts the whole
+set a block writes to (`Policy.KeepsKey`, i.e. a low watermark of at least 1
+for FIFO and LRU-write), then within one engine any two nodes that answer to
+the same root have the same consensus state, unless a hash is broken: only
+the initial node can answer by its storage root. So `Revision(root)` returns
+the same parent for later blocks whenever it is called. -/
+def LookupUnique [DecidableEq D] : Prop :=
+  ∀ (n0 : Node K V D P) (w : Bool) (τ : List (Label K V)) (sys : Sys K V D P),
+    InitOK P n0 → Steps P H cap (Sys.init P n0 w) τ sys → (∀ l ∈ τ, l.Writes) →
+    ∀ i j r, i < sys.size → j < sys.size →
+      (sys.nodes i).AnswersTo P H cap r → (sys.nodes j).AnswersTo P H cap r →
+      (sys.nodes i).state = (sys.nodes j).state ∨ H.Broken
 
 end Spec
 

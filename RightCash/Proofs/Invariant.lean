@@ -39,7 +39,7 @@ theorem retargetChain_ok (n : Node K V D P) (hn : NodeOK P n) :
   simp only [List.not_mem_nil, ite_false, Chain.eff_new, Chain.submit_base]
   by_cases hm : k ∈ P.marked n.pol
   · rw [ite_eq_left hm, ite_eq_left hm]
-    obtain ⟨e, he⟩ := nodeOK_dom P hP hn (hn.2.2.1 k hm)
+    obtain ⟨e, he⟩ := nodeOK_dom P hP hn (hn.2.2 k hm)
     rw [he]; rfl
   · rw [ite_eq_right hm, ite_eq_right hm]; rfl
 
@@ -71,7 +71,7 @@ theorem mkChild_ok (par : Node K V D P) (p : Nat) (b : List (BatchOp K V))
   have hcons' : P.cons pol =
       (P.specWrites (P.cons par.pol) (b.map BatchOp.key) (par.height + 1) cap).2 := by
     rw [hcons, writesOf, hP.writes_cons]
-  refine ⟨?_, ?_, hmarks, ?_⟩
+  refine ⟨?_, ?_, hmarks⟩
   · show P.wf (P.cons pol)
     rw [hcons']; exact hP.wf_writes _ _ _ _ hn.1
   · intro k
@@ -83,12 +83,11 @@ theorem mkChild_ok (par : Node K V D P) (p : Nat) (b : List (BatchOp K V))
     · rw [ite_eq_right hV, finalEntries_isSome, hn.2.1 k]
       simp only [hV, not_false_eq_true, and_true]
       exact Or.comm
-  · intro h; simp [mkChild, Node.state] at h
 
 theorem writes_marks_ok (par : Node K V D P) (b : List (BatchOp K V)) (hn : NodeOK P par) :
     ∀ k ∈ P.marked (writesOf P cap par b).2,
       k ∈ P.tracked (P.cons (writesOf P cap par b).2) :=
-  hP.writes_marked _ _ _ _ hn.1 hn.2.2.1
+  hP.writes_marked _ _ _ _ hn.1 hn.2.2
 
 theorem plainChild_ok (par : Node K V D P) (p : Nat) (b : List (BatchOp K V))
     (md : Option (List UInt8)) (hn : NodeOK P par) :
@@ -133,7 +132,7 @@ theorem kept_chain_ok (par : Node K V D P) (p : Nat) (b : List (BatchOp K V))
     by_cases hE : k ∈ (writesOf P cap par b).1.evict
     · have hm := hE1 hR hE
       rw [ite_eq_left hE, ite_eq_left hm]
-      obtain ⟨e, he⟩ := nodeOK_dom P hP hchild (hchild.2.2.1 k hm)
+      obtain ⟨e, he⟩ := nodeOK_dom P hP hchild (hchild.2.2 k hm)
       simp only at he
       rw [he]; rfl
     · rw [ite_eq_right hE]
@@ -269,7 +268,7 @@ theorem hint_chain_ok (n : Node K V D P) (ks : List K) (margin : Nat) (c : Chain
     by_cases hE : k ∈ (P.hintWrites n.pol ks cap margin).1.evict
     · have hm := hE1 hR hE
       rw [ite_eq_left hE, ite_eq_left hm]
-      have ht := hP.hint_marked n.pol ks cap margin hn.2.2.1 k hm
+      have ht := hP.hint_marked n.pol ks cap margin hn.2.2 k hm
       obtain ⟨e, he⟩ := nodeOK_dom P hP hn ht
       rw [he]; rfl
     · rw [ite_eq_right hE]
@@ -282,17 +281,13 @@ theorem hint_chain_ok (n : Node K V D P) (ks : List K) (margin : Nat) (c : Chain
 theorem hinted_node_ok (n : Node K V D P) (ks : List K) (margin : Nat) (hn : NodeOK P n) :
     NodeOK P { n with pol := (P.hintWrites n.pol ks cap margin).2 } := by
   have hc := hP.hint_cons n.pol ks cap margin
-  refine ⟨?_, ?_, ?_, ?_⟩
+  refine ⟨?_, ?_, ?_⟩
   · show P.wf (P.cons (P.hintWrites n.pol ks cap margin).2); rw [hc]; exact hn.1
   · intro k; show _ ↔ k ∈ P.tracked (P.cons (P.hintWrites n.pol ks cap margin).2)
     rw [hc]; exact hn.2.1 k
   · intro k hk
     show k ∈ P.tracked (P.cons (P.hintWrites n.pol ks cap margin).2)
-    rw [hc]; exact hP.hint_marked n.pol ks cap margin hn.2.2.1 k hk
-  · intro h
-    have := hn.2.2.2 h
-    simp only [Node.state] at this ⊢
-    rw [hc]; exact this
+    rw [hc]; exact hP.hint_marked n.pol ks cap margin hn.2.2 k hk
 
 theorem inv_hint (sys : Sys K V D P) (v : Nat) (ks : List K) (margin : Nat) (hinv : Inv P sys) :
     Inv P (sys.hint P cap v ks margin) := by
@@ -381,17 +376,13 @@ theorem inv_dropTarget (sys : Sys K V D P) (hinv : Inv P sys) :
 
 theorem inv_init (n0 : Node K V D P) (w : Bool) (h0 : InitOK P n0) :
     Inv P (Sys.init P n0 w) := by
-  obtain ⟨hwf, hdom, hgen⟩ := h0
+  obtain ⟨hwf, hdom⟩ := h0
   have hc := hP.reset_cons n0.pol
   have hg : NodeOK P { n0 with pol := P.resetHints n0.pol, parent := none } := by
-    refine ⟨?_, ?_, ?_, ?_⟩
+    refine ⟨?_, ?_, ?_⟩
     · show P.wf (P.cons (P.resetHints n0.pol)); rw [hc]; exact hwf
     · intro k; show _ ↔ k ∈ P.tracked (P.cons (P.resetHints n0.pol)); rw [hc]; exact hdom k
     · intro k hk; simp [hP.reset_marked] at hk
-    · intro h
-      have := hgen h
-      simp only [Node.state, EState.mk.injEq, EState.empty] at this ⊢
-      rw [hc]; exact this
   refine ⟨fun _ => hg, ?_, ?_, ?_⟩
   · intro hw
     change w = false at hw
