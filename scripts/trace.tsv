@@ -1,0 +1,54 @@
+# rust_file	rust_symbol (literal text at the pinned commit)	lean_name	relation
+src/types.rs	pub enum BatchOp	RightCash.BatchOp	transcribed (PrefixDelete rejected up front)
+src/types.rs	pub const EMPTY_ROOT	RightCash.Hashes.emptyRoot	abstracted (uninterpreted constant)
+src/root.rs	pub fn combine(	RightCash.rootOf	transcribed over abstract hashes
+src/root.rs	pub fn metadata_hash(	RightCash.Hashes.metadata	abstracted (uninterpreted hash)
+src/set.rs	pub enum Entry<V>	RightCash.Entry	transcribed
+src/set.rs	enum Slot {	RightCash.Slot	transcribed (u32 fields as Nat)
+src/set.rs	struct Arena {	RightCash.Arena	transcribed (chunk list; live/total omitted)
+src/set.rs	fn compact<K: Key>	RightCash.Arena.compact	transcribed
+src/set.rs	fn normalise<	RightCash.Arena.packBatch	transcribed (chunk packing)
+src/set.rs	ops.sort_by(|a, b| a.key.cmp(&b.key));	RightCash.Arena.normOps	equivalent (stable sort + dedup = sorted upsert)
+src/set.rs	fn merge<K, V, C>(	RightCash.merge	transcribed (loop as recursion)
+src/set.rs	pub(crate) fn apply(&self, batch	RightCash.Snap.apply	transcribed (consensus data)
+src/set.rs	pub(crate) fn genesis(	RightCash.Snap.genesis	transcribed
+src/set.rs	pub fn get(&self, key: &K) -> Option<Entry<V>>	RightCash.kvOf	transcribed (with Node::get)
+src/proposal.rs	pub(crate) struct Node<	RightCash.Node	abstracted (snapshot as map + policy + view state)
+src/proposal.rs	pub(crate) fn get(&self, key: &K) -> Result<Option<V>>	RightCash.kvOf	transcribed
+src/policy/mod.rs	pub trait EvictionPolicy<	RightCash.Policy	interface + laws (Policy.Lawful)
+src/policy/mod.rs	pub struct Eviction<	RightCash.Eviction	transcribed
+src/policy/mod.rs	pub struct Prediction<	RightCash.Prediction	transcribed
+src/policy/mod.rs	pub(crate) fn order_digest<	RightCash.Hashes.policy	abstracted (uninterpreted hash of the order)
+src/policy/mod.rs	pub(crate) fn split_order<	RightCash.Lru.specWrites	equivalent (filter on an order with distinct keys)
+src/policy/fifo.rs	pub struct Fifo<	RightCash.Fifo.St	transcribed (index derived from order)
+src/policy/fifo.rs	fn writes(&mut self, keys: &[K], height: u64, capacity: usize)	RightCash.Fifo.writes	transcribed
+src/policy/fifo.rs	fn reconcile(&mut self	RightCash.Fifo.reconcile	transcribed
+src/policy/fifo.rs	fn hint_writes(&mut self	RightCash.Fifo.hintWrites	transcribed
+src/policy/lru_write.rs	pub struct LruWrite<	RightCash.Lru.St	transcribed (index derived from order)
+src/policy/lru_write.rs	fn writes(&mut self, keys: &[K], height: u64, capacity: usize)	RightCash.Lru.writes	transcribed
+src/policy/lru_write.rs	fn reconcile(&mut self	RightCash.Lru.reconcile	transcribed
+src/policy/lru_write.rs	fn hint_writes(&mut self	RightCash.Lru.hintWrites	transcribed (first loop split by effect)
+src/speculate.rs	pub(crate) enum SpecOp<	RightCash.SpecOp	transcribed
+src/speculate.rs	fn put_back<	RightCash.SpecOp.toOp	transcribed
+src/speculate.rs	struct Chain<	RightCash.Chain	transcribed (failed = status.is_err())
+src/speculate.rs	fn merge(&mut self, ops	RightCash.Chain.submit	transcribed
+src/speculate.rs	fn build(	RightCash.Chain.build	transcribed (+ Chain.fail)
+src/speculate.rs	fn finish(mut self	RightCash.Chain.finish	transcribed
+src/speculate.rs	enum Request<	RightCash.Req	transcribed
+src/speculate.rs	fn run<	RightCash.ASys.dequeue	over-approximated (any schedule)
+src/lib.rs	pub fn propose(	RightCash.Sys.propose	transcribed (sync); ASys.proposeNow/Begin/End (async)
+src/lib.rs	fn finish_speculation(	RightCash.finishChild	transcribed
+src/lib.rs	pub fn commit(	RightCash.Sys.commit	transcribed (failures omitted)
+src/lib.rs	fn after_commit(	RightCash.Sys.commit	transcribed
+src/lib.rs	pub fn prefetch(	RightCash.Sys.prefetch	transcribed (any node, any margin)
+src/lib.rs	fn retarget(	RightCash.Sys.retarget	transcribed
+src/lib.rs	fn spec_ops<	RightCash.specOps	transcribed
+src/vc/mod.rs	pub trait VectorCommitment<	RightCash.VCImpl	interface (VCImpl.Correct)
+src/vc/rehash.rs	impl<K: Key> VectorCommitment<K> for Rehash	RightCash.rehash	transcribed over an abstract hash
+src/vc/lthash.rs	impl<K: Key> VectorCommitment<K> for LtHash	RightCash.lthash	transcribed over an abstract group
+src/lattice.rs	pub struct LatticeAccumulator	RightCash.lanes	lane arithmetic (wrapping u16)
+src/vc/merkle.rs	fn apply(&mut self, key: &K, _old	RightCash.SMT.up	transcribed (prefixes as bit lists)
+src/vc/merkle.rs	fn defaults()	RightCash.SMT.dflt	transcribed
+src/vc/merkle_blake3.rs	fn fill_leaves<	RightCash.MB3.fill	transcribed (index arithmetic kept)
+src/vc/merkle_blake3.rs	fn build<'a	RightCash.MB3.buildLeaves	transcribed (levels abstracted as topOf)
+src/storage/mod.rs	pub trait StorageProposal<	RightCash.applyBatch	assumed correct (A1)

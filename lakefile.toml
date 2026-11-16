@@ -1,0 +1,6 @@
+name = "RightCashLean"
+version = "0.1.0"
+defaultTargets = ["RightCash"]
+
+[[lean_lib]]
+name = "RightCash"

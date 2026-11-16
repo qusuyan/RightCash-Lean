@@ -1,0 +1,4 @@
+[submodule "rust"]
+	path = rust
+	url = https://github.com/qusuyan/auth_wal.git
+	branch = main
